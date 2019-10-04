@@ -3,6 +3,7 @@
 #include <CQPropertyViewEditor.h>
 #include <CQPropertyView.h>
 #include <CQPropertyViewType.h>
+#include <CQPropertyViewUtil.h>
 #include <CQUtil.h>
 
 #include <QLineEdit>
@@ -10,21 +11,6 @@
 #include <QCheckBox>
 
 namespace {
-
-QString variantToString(const QVariant &var) {
-  QString str;
-
-  if (var.type() == QVariant::UserType) {
-    if (! CQUtil::userVariantToString(var, str))
-      return "";
-  }
-  else {
-    if (! CQUtil::variantToString(var, str))
-      return "";
-  }
-
-  return str;
-}
 
 class TableTip {
  public:
@@ -85,6 +71,8 @@ CQPropertyViewItem::
 CQPropertyViewItem(CQPropertyViewItem *parent, QObject *object, const QString &name) :
  parent_(parent), object_(object), name_(name)
 {
+  setObjectName(name);
+
   CQUtil::PropInfo propInfo;
 
   if (object_ && CQUtil::getPropInfo(object_, name_, &propInfo) && propInfo.isWritable())
@@ -144,6 +132,8 @@ visibleChildren() const
   if (! visibleChildrenValid_) {
     CQPropertyViewItem *th = const_cast<CQPropertyViewItem *>(this);
 
+    assert(th->visibleChildren_.empty());
+
     th->visibleChildrenSet_ = false;
 
     if (! isHierHidden()) {
@@ -198,7 +188,10 @@ isHierHidden() const
       return false;
   }
 
-  return false;
+  if (object_)
+    return false;
+
+  return true;
 }
 
 //---
@@ -571,13 +564,6 @@ getDefaultValue() const
   return "";
 }
 
-bool
-CQPropertyViewItem::
-isWritable() const
-{
-  return true;
-}
-
 QVariant
 CQPropertyViewItem::
 data() const
@@ -594,10 +580,50 @@ bool
 CQPropertyViewItem::
 setData(const QVariant &value)
 {
+  if (! isEditable())
+    return false;
+
   if (! object_ || ! CQUtil::setProperty(object_, name_, value))
     return false;
 
   return true;
+}
+
+QVariant
+CQPropertyViewItem::
+tclData() const
+{
+  QVariant var;
+
+  if (! object_ || ! CQUtil::getTclProperty(object_, name_, var))
+    var = QVariant();
+
+  return var;
+}
+
+QString
+CQPropertyViewItem::
+typeName() const
+{
+  CQUtil::PropInfo propInfo;
+  QString          typeName;
+
+  if (object_ && CQUtil::getPropInfo(object_, name_, &propInfo))
+    typeName = propInfo.typeName();
+
+  return typeName;
+}
+
+bool
+CQPropertyViewItem::
+isEnum() const
+{
+  CQUtil::PropInfo propInfo;
+
+  if (object_ && CQUtil::getPropInfo(object_, name_, &propInfo))
+    return propInfo.isEnumType();
+
+  return false;
 }
 
 QString
@@ -615,6 +641,11 @@ nameTip() const
 
   if (desc() != "")
     tableTip.addRow("Description", desc());
+
+  QString userTypeName = this->userTypeName();
+
+  if (userTypeName != "")
+    tableTip.addRow("Type", userTypeName);
 
   return tableTip.str();
 }
@@ -634,6 +665,11 @@ valueTip() const
 
   if (desc() != "")
     tableTip.addRow("Description", desc());
+
+  QString userTypeName = this->userTypeName();
+
+  if (userTypeName != "")
+    tableTip.addRow("Type", userTypeName);
 
   return tableTip.str();
 }
@@ -696,7 +732,7 @@ paint(const CQPropertyViewDelegate *delegate, QPainter *painter,
   CQPropertyViewType *type = CQPropertyViewMgrInst->getType(typeName);
 
   if      (type) {
-    type->draw(delegate, painter, option, index, var, inside);
+    type->draw(this, delegate, painter, option, index, var, inside);
   }
   else if (typeName == "bool") {
     delegate->drawCheckInside(painter, option, var.toBool(), index, inside);
@@ -733,14 +769,14 @@ QString
 CQPropertyViewItem::
 initStr() const
 {
-  return variantToString(initValue());
+  return CQPropertyViewUtil::variantToString(initValue());
 }
 
 QString
 CQPropertyViewItem::
 dataStr() const
 {
-  return variantToString(data());
+  return CQPropertyViewUtil::variantToString(data());
 }
 
 bool
@@ -771,4 +807,32 @@ enumStringToInd(const CQUtil::PropInfo &propInfo, const QString &str, int &ind) 
   }
 
   return false;
+}
+
+QString
+CQPropertyViewItem::
+userTypeName() const
+{
+  QString typeName = this->typeName();
+
+  QString userTypeName = CQPropertyViewMgrInst->userName(typeName);
+
+  if (userTypeName != "")
+    return userTypeName;
+
+  if      (typeName == "QString")
+    return "string";
+  else if (typeName == "QRectF" || typeName == "QRect")
+    return "rectangle";
+  else if (typeName == "QSizeF" || typeName == "QSize")
+    return "size";
+  else if (typeName == "QPointF" || typeName == "QPoint")
+    return "point";
+  else if (typeName == "Qt::Alignment")
+    return "alignment";
+
+  if (isEnum())
+    return "enum";
+
+  return typeName;
 }

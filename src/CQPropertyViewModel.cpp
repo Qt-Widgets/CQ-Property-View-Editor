@@ -6,6 +6,7 @@ CQPropertyViewModel::
 CQPropertyViewModel() :
  QAbstractItemModel()
 {
+  setObjectName("viewModel");
 }
 
 CQPropertyViewModel::
@@ -252,6 +253,21 @@ getProperty(const QObject *object, const QString &path, QVariant &value) const
   return true;
 }
 
+bool
+CQPropertyViewModel::
+getTclProperty(const QObject *object, const QString &path, QVariant &value) const
+{
+  const CQPropertyViewItem *item =
+    propertyItem(object, path, '.', /*create*/false, /*alias*/true, /*hidden*/true);
+
+  if (! item)
+    return false;
+
+  value = item->tclData();
+
+  return true;
+}
+
 void
 CQPropertyViewModel::
 removeProperties(const QString &path, QObject *)
@@ -297,32 +313,37 @@ setObjectRoot(const QString &path, QObject *obj)
 
 void
 CQPropertyViewModel::
-objectNames(const QObject *object, QStringList &names) const
+objectNames(const QObject *object, QStringList &names, bool hidden) const
 {
+  assert(object);
+
   CQPropertyViewItem *item = objectItem(object);
   if (! item) return;
 
-  itemNames(item, object, item, names);
+  itemNames(item, object, item, names, hidden);
 }
 
 void
 CQPropertyViewModel::
 itemNames(CQPropertyViewItem *rootItem, const QObject *object,
-          CQPropertyViewItem *item, QStringList &names) const
+          CQPropertyViewItem *item, QStringList &names, bool hidden) const
 {
   if (item->object() && item->object() != object)
     return;
 
-  int num = numItemChildren(item);
+  int num = numItemChildren(item, hidden);
 
   if (num > 0) {
     for (int i = 0; i < num; ++i) {
-      CQPropertyViewItem *item1 = itemChild(item, i);
+      CQPropertyViewItem *item1 = itemChild(item, i, hidden);
 
-      itemNames(rootItem, object, item1, names);
+      itemNames(rootItem, object, item1, names, hidden);
     }
   }
   else {
+    if (! hidden && item->isHidden())
+      return;
+
     QString name = item->path(".", /*alias*/true, rootItem);
 
     names.push_back(name);
@@ -361,16 +382,16 @@ item(const QModelIndex &index, bool &ok) const
 
 const CQPropertyViewItem *
 CQPropertyViewModel::
-propertyItem(const QObject *object, const QString &path) const
+propertyItem(const QObject *object, const QString &path, bool hidden) const
 {
-  return propertyItem(object, path, '.', /*create*/false, /*alias*/true, /*hidden*/false);
+  return propertyItem(object, path, '.', /*create*/false, /*alias*/true, hidden);
 }
 
 CQPropertyViewItem *
 CQPropertyViewModel::
-propertyItem(QObject *object, const QString &path)
+propertyItem(QObject *object, const QString &path, bool hidden)
 {
-  return propertyItem(object, path, '.', /*create*/false, /*alias*/true, /*hidden*/false);
+  return propertyItem(object, path, '.', /*create*/false, /*alias*/true, hidden);
 }
 
 const CQPropertyViewItem *
@@ -487,14 +508,18 @@ CQPropertyViewItem *
 CQPropertyViewModel::
 objectItem(CQPropertyViewItem *parent, const QObject *obj) const
 {
+  // check children
   int num = numItemChildren(parent);
 
   for (int i = 0; i < num; ++i) {
     CQPropertyViewItem *item = itemChild(parent, i);
 
+    // explicit root for object
     if      (item->root() == obj)
       return item;
-    else if (item->object() == obj) {
+
+    // matching item's root is highest null object parent
+    if (item->object() == obj) {
       CQPropertyViewItem *item1 = parent;
 
       while (item1 && item1->parent() && ! item1->parent()->object())
@@ -504,6 +529,7 @@ objectItem(CQPropertyViewItem *parent, const QObject *obj) const
     }
   }
 
+  // check hier children
   for (int i = 0; i < num; ++i) {
     CQPropertyViewItem *item = itemChild(parent, i);
 
@@ -565,24 +591,39 @@ reset()
 
 void
 CQPropertyViewModel::
-getChangedNameValues(NameValues &nameValues) const
+getChangedNameValues(NameValues &nameValues, bool tcl) const
 {
-  return getChangedNameValues(nullptr, nameValues);
+  return getChangedNameValues(nullptr, nameValues, tcl);
 }
 
 void
 CQPropertyViewModel::
-getChangedNameValues(const QObject *obj, NameValues &nameValues) const
+getChangedNameValues(const QObject *obj, NameValues &nameValues, bool tcl) const
 {
-  CQPropertyViewItem *root = this->root();
-
-  return getChangedItemNameValues(obj, root, nameValues);
+  getChangedNameValues(obj, obj, nameValues, tcl);
 }
 
 void
 CQPropertyViewModel::
-getChangedItemNameValues(const QObject *obj, CQPropertyViewItem *parent,
-                         NameValues &nameValues) const
+getChangedNameValues(const QObject *rootObj, const QObject *obj,
+                     NameValues &nameValues, bool tcl) const
+{
+  CQPropertyViewItem *rootItem = this->root();
+
+  if (obj) {
+    CQPropertyViewItem *item = objectItem(rootObj);
+
+    if (item)
+      rootItem = item;
+  }
+
+  return getChangedItemNameValues(rootItem, obj, rootItem, nameValues, tcl);
+}
+
+void
+CQPropertyViewModel::
+getChangedItemNameValues(CQPropertyViewItem *rootItem, const QObject *obj,
+                         CQPropertyViewItem *parent, NameValues &nameValues, bool tcl) const
 {
   int num = numItemChildren(parent);
 
@@ -592,7 +633,7 @@ getChangedItemNameValues(const QObject *obj, CQPropertyViewItem *parent,
     int num1 = numItemChildren(item);
 
     if (num1 > 0) {
-      getChangedItemNameValues(obj, item, nameValues);
+      getChangedItemNameValues(rootItem, obj, item, nameValues, tcl);
     }
     else {
       if (! item->isEditable())
@@ -605,18 +646,22 @@ getChangedItemNameValues(const QObject *obj, CQPropertyViewItem *parent,
       QString dataStr = item->dataStr();
 
       if (initStr != dataStr)
-        addNameValue(item, nameValues);
+        addNameValue(rootItem, item, nameValues, tcl);
     }
   }
 }
 
 void
 CQPropertyViewModel::
-addNameValue(CQPropertyViewItem *item, NameValues &nameValues) const
+addNameValue(CQPropertyViewItem *rootItem, CQPropertyViewItem *item,
+             NameValues &nameValues, bool tcl) const
 {
-  QString path = item->path(".", /*alias*/true);
+  QString path = item->path(".", /*alias*/true, rootItem);
 
-  nameValues[path] = item->dataStr();
+  if (tcl)
+    nameValues[path] = item->tclData();
+  else
+    nameValues[path] = item->dataStr();
 }
 
 //------

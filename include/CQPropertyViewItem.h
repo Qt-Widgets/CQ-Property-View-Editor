@@ -147,9 +147,6 @@ class CQPropertyViewItem : public QObject {
   //! get editor widget text
   QVariant getEditorData() const;
 
-  //! is writable
-  bool isWritable() const;
-
   //! initial value
   QVariant initValue() const { return initValue_; }
 
@@ -157,9 +154,20 @@ class CQPropertyViewItem : public QObject {
   QVariant data() const;
   bool setData(const QVariant &value);
 
+  QVariant tclData() const;
+
   //! get/set desc
   const QString &desc() const { return desc_; }
   CQPropertyViewItem &setDesc(const QString &s) { desc_ = s; return *this; }
+
+  //! get type name
+  QString typeName() const;
+
+  //! is enum
+  bool isEnum() const;
+
+  //! get user type name
+  QString userTypeName() const;
 
   //! get tip for name column
   QString nameTip() const;
@@ -192,25 +200,25 @@ class CQPropertyViewItem : public QObject {
   bool enumStringToInd(const CQUtil::PropInfo &propInfo, const QString &str, int &ind) const;
 
  private:
-  uint                         id_       { 0xFEEDBEEF }; //! unique id
-  CQPropertyViewItem*          parent_   { nullptr };    //! parent item
-  QPointer<QObject>            object_;                  //! associated objects
-  QPointer<QObject>            root_;                    //! root for object
-  QString                      name_;                    //! name
-  QString                      alias_;                   //! alias
-  QString                      desc_;                    //! description
-  Children                     children_;                //! child items
-  QVariant                     initValue_;               //! init value
-  bool                         editable_ { false };      //! is editable
-  bool                         hidden_   { false };      //! is hidden
-  bool                         inside_   { false };      //! is mouse inside
-  QWidget*                     widget_   { nullptr };    //! edit widget
-  CQPropertyViewEditorFactory *editor_   { nullptr };    //! editor interface
-  QStringList                  values_;                  //! enum values
+  uint                         id_       { 0xFEEDBEEF }; //!< unique id
+  CQPropertyViewItem*          parent_   { nullptr };    //!< parent item
+  QPointer<QObject>            object_;                  //!< associated objects
+  QPointer<QObject>            root_;                    //!< root for object
+  QString                      name_;                    //!< name
+  QString                      alias_;                   //!< alias
+  QString                      desc_;                    //!< description
+  Children                     children_;                //!< child items
+  QVariant                     initValue_;               //!< init value
+  bool                         editable_ { false };      //!< is editable
+  bool                         hidden_   { false };      //!< is hidden
+  bool                         inside_   { false };      //!< is mouse inside
+  QWidget*                     widget_   { nullptr };    //!< edit widget
+  CQPropertyViewEditorFactory *editor_   { nullptr };    //!< editor interface
+  QStringList                  values_;                  //!< enum values
 
-  Children visibleChildren_;                //! visible child items
-  bool     visibleChildrenValid_ { false }; //! visible child items valid
-  bool     visibleChildrenSet_   { false }; //! any children hidden
+  Children visibleChildren_;                //!< visible child items
+  bool     visibleChildrenValid_ { false }; //!< visible child items valid
+  bool     visibleChildrenSet_   { false }; //!< any children hidden
 };
 
 #endif
